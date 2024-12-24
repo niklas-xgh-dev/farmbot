@@ -1,0 +1,6 @@
+target_color: [227, 114, 112]
+target_position: [1837, 102]  # [x, y]
+scan_area: [250, 280, 3642, 1829]  # area to scan [x1, y1, x2, y2]
+color_tolerance: 20
+sample_size: 5
+scan_step: 150  # pixels to move down after each horizontal scan

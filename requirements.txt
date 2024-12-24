@@ -1,0 +1,5 @@
+pyautogui
+Pillow
+pyyaml
+# For the coordinate finder:
+keyboard
