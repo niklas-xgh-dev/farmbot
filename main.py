@@ -2,121 +2,136 @@ import yaml
 import pyautogui
 import time
 import random
+import math
 from PIL import ImageGrab
 import logging
-from pathlib import Path
+import keyboard
 import sys
 
 logging.basicConfig(
-   level=logging.INFO,
-   format='%(asctime)s - %(levelname)s - %(message)s',
-   handlers=[logging.FileHandler('monster_hunter.log'), logging.StreamHandler()]
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler('bot.log'), logging.StreamHandler()]
 )
 
-class MonsterHunter:
-   def __init__(self, config_path='config.yaml'):
-       self.load_config(config_path)
-       pyautogui.FAILSAFE = True
-       self.movement_keys = ['w', 'a', 's', 'd']
-       
-   def load_config(self, config_path):
-       try:
-           with open(config_path, 'r') as f:
-               config = yaml.safe_load(f)
-               self.target_color = config['target_color']
-               self.target_pos = tuple(config['target_position'])
-               self.scan_area = tuple(config['scan_area'])
-               self.color_tolerance = config.get('color_tolerance', 20)
-               self.sample_size = config.get('sample_size', 5)
-               self.scan_step = config.get('scan_step', 50)
-       except Exception as e:
-           logging.error(f"Failed to load config: {e}")
-           sys.exit(1)
+def load_config(config_path='config.yaml'):
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+            return {
+                'target_color': config['target_color'],
+                'target_pos': tuple(config['target_position']),
+                'scan_area': tuple(config['scan_area']),
+                'color_tolerance': config.get('color_tolerance', 20),
+                'sample_size': config.get('sample_size', 5),
+                'scan_step': config.get('scan_step', 15)  # Reduced step size
+            }
+    except Exception as e:
+        logging.error(f"Failed to load config: {e}")
+        sys.exit(1)
 
-   def random_movement(self, duration=0.5):
-       key = random.choice(self.movement_keys)
-       pyautogui.keyDown(key)
-       time.sleep(random.uniform(0.1, duration))
-       pyautogui.keyUp(key)
-
-   def check_pixel_color(self):
-       try:
-           x, y = self.target_pos
-           area = (x - self.sample_size, y - self.sample_size, 
-                  x + self.sample_size, y + self.sample_size)
-           screen = ImageGrab.grab(bbox=area)
-           center = screen.getpixel((self.sample_size, self.sample_size))
-           logging.info(f"Current pixel color: {center}")
-           
-           return all(abs(c - t) <= self.color_tolerance 
-                     for c, t in zip(center, self.target_color))
-       except Exception as e:
-           logging.error(f"Screenshot failed: {e}")
-           return False
-
-   def scan_pattern(self):
-        x1, y1, x2, y2 = self.scan_area
-        try:
-            while True:
-                # Divide area into quadrants for better coverage
-                quadrant = random.randint(1, 4)
-                if quadrant == 1:
-                    x = random.randint(x1, (x1 + x2)//2)
-                    y = random.randint(y1, (y1 + y2)//2)
-                elif quadrant == 2:
-                    x = random.randint((x1 + x2)//2, x2)
-                    y = random.randint(y1, (y1 + y2)//2)
-                elif quadrant == 3:
-                    x = random.randint(x1, (x1 + x2)//2)
-                    y = random.randint((y1 + y2)//2, y2)
-                else:
-                    x = random.randint((x1 + x2)//2, x2)
-                    y = random.randint((y1 + y2)//2, y2)
-
-                pyautogui.moveTo(x, y, duration=0.05)  # Faster movement
-                
-                if self.check_pixel_color():
-                    return True
-                
-                self.random_movement(1)  # Shorter movement duration
-                time.sleep(0.02)  # Shorter sleep
-                
-        except Exception as e:
-            logging.error(f"Scan error: {e}")
-            return False
-
-   def hunt(self):
-        logging.info("Starting monster hunter...")
-        time.sleep(3)
-        last_key_press = 0
+def check_pixel_color(config):
+    try:
+        x, y = config['target_pos']
+        sample_size = config['sample_size']
+        area = (x - sample_size, y - sample_size, 
+               x + sample_size, y + sample_size)
+        screen = ImageGrab.grab(bbox=area)
+        center = screen.getpixel((sample_size, sample_size))
         
-        try:
-            self.press_8()
-            last_key_press = time.time()
-            
-            while True:
-                current_time = time.time()
-                if current_time - last_key_press >= 21:
-                    self.press_8()
-                    last_key_press = current_time
-                    
-                if self.scan_pattern():
-                    current_pos = pyautogui.position()
-                    pyautogui.doubleClick()
-                    time.sleep(3)
-                    self.random_movement(1)
-                time.sleep(0.05)
-        except KeyboardInterrupt:
-            logging.info("Stopped by user")
-        except Exception as e:
-            logging.error(f"Unexpected error: {e}")
+        return all(abs(c - t) <= config['color_tolerance'] 
+                  for c, t in zip(center, config['target_color']))
+    except Exception as e:
+        logging.error(f"Screenshot failed: {e}")
+        return False
 
-   def press_8(self):
-        pyautogui.keyDown('8')
-        time.sleep(0.1)
-        pyautogui.keyUp('8')
-        logging.info("Pressed 8")
+def move_character(key, duration=0.5):
+    pyautogui.keyDown(key)
+    time.sleep(duration)
+    pyautogui.keyUp(key)
+
+def press_8():
+    pyautogui.keyDown('8')
+    time.sleep(0.1)
+    pyautogui.keyUp('8')
+
+def efficient_scan(config):
+    x1, y1, x2, y2 = config['scan_area']
+    center_x = (x1 + x2) // 2
+    center_y = (y1 + y2) // 2
+    radius = min((x2 - x1), (y2 - y1)) // 3
+    angle = 0
+    step = 35  # Increased angle step
+    expansion_rate = 0.5  # Faster spiral expansion
+    
+    while is_running and angle < 560:
+        r = radius * (angle / 560.0) * expansion_rate
+        x = center_x + int(r * math.cos(math.radians(angle)))
+        y = center_y + int(r * math.sin(math.radians(angle)))
+        
+        x = max(x1, min(x2, x))
+        y = max(y1, min(y2, y))
+        
+        pyautogui.moveTo(x, y, duration=0.005)  # Faster movement
+        
+        if check_pixel_color(config):
+            return True
+            
+        angle += step
+        
+    return False
+
+def hunt(config):
+    global kills
+    logging.info("Starting farmbot...")
+    time.sleep(2)
+    last_key_press = 0
+    movement_sequence = ['w', 's', 'a', 'd']
+    current_move = 0
+    
+    try:
+        while True:
+            if not is_running:
+                time.sleep(0.1)
+                continue
+                
+            current_time = time.time()
+            
+            # Skill management
+            if current_time - last_key_press >= 21:
+                press_8()
+                last_key_press = current_time
+            
+            # Character movement
+            move_character(movement_sequence[current_move], 0.5)
+            current_move = (current_move + 1) % 4
+            
+            # Monster scanning
+            if efficient_scan(config):
+                pyautogui.doubleClick()
+                kills += 1
+                logging.info(f"Kills: {kills}")
+                time.sleep(2)  # Reduced wait time
+            
+            time.sleep(0.01)
+            
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+
+def toggle_bot():
+    global is_running
+    is_running = not is_running
+    state = "started" if is_running else "stopped"
+    logging.info(f"Bot {state}")
+    print(f"Bot {state}")
 
 if __name__ == "__main__":
-   hunter = MonsterHunter()
-   hunter.hunt()
+    pyautogui.FAILSAFE = True
+    is_running = False
+    kills = 0
+    
+    keyboard.on_press_key('z', lambda _: toggle_bot())
+    
+    config = load_config()
+    print("Bot ready! Press Z to start/stop, move mouse to corner to exit.")
+    hunt(config)
